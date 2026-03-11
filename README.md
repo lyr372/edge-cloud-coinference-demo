@@ -75,25 +75,15 @@ PYTHONPATH=src python -m edge_cloud_coinference.cli \
 2. 若 `edge_confidence >= threshold`，直接端侧返回。  
 3. 否则触发“端 -> 云”接力，云侧继续并合并结果。  
 
-适合：
-- 日常高频、短文本、对时延敏感的请求优先留在端侧；
-- 长尾复杂请求自动上云兜底。
-
 ### 4.2 任务级协同（`mode=task`）
 
 按任务类型和输入复杂度直接路由：
 - `reasoning/code/long_context/multilingual` -> 云侧
 - 其他默认 -> 端侧
 
-适合：
-- 有明确业务类型标签；
-- 对可解释路由策略有要求的场景。
-
----
-
 ## 5. 如何接入真实 Qwen 推理后端
 
-当前 `executors.py` 是“可运行模拟器”，目的是先把协同框架打通。上线时建议按下面方式替换：
+当前 `executors.py` 是“脱敏的可运行模拟器”，目的是说明大致协同框架。
 
 1. 保留 `BaseExecutor` 接口（`infer(prompt) -> ExecutorOutput`）。
 2. 新建 `QwenHFExecutor`（transformers）或 `QwenVLLMExecutor`（vLLM）。
@@ -108,17 +98,7 @@ PYTHONPATH=src python -m edge_cloud_coinference.cli \
 
 ---
 
-## 6. 工程扩展建议
-
-- **策略层**：增加成本感知路由（按 token 成本、GPU 队列、网络抖动动态决策）。
-- **缓存层**：在端侧加入 prompt 前缀缓存和结果缓存，提高命中率。
-- **观测层**：接入 tracing + metrics（route ratio、fallback ratio、P95 latency、cloud spend）。
-- **安全层**：端侧先做轻量审查，违规请求直接拦截或强制上云审查。
-- **多租户**：按租户级别配置不同阈值与模型组合。
-
----
-
-## 7. 测试
+## 6. 测试
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v
