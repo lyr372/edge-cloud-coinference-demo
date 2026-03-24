@@ -1,110 +1,88 @@
 # Edge-Cloud CoInference Demo（Qwen 端云协同推理框架）
 
-这个仓库给出一个**可落地扩展的框架骨架**，用于实现 Qwen 系列模型在“端侧 + 云侧”的协同推理，支持两种协同范式：
+这个仓库提供一个可扩展的端云协同推理原型，并新增以下能力：
 
-- **Token 级协同**：端侧先行生成/判断，低置信度时把上下文交给云侧继续。
-- **任务级协同**：根据任务类型（如 code/reasoning/long_context）直接路由到端侧或云侧。
-
-你可以自由指定端侧和云侧模型规模（例如 `Qwen2.5-1.5B-Instruct` + `Qwen2.5-72B-Instruct`），框架会自动解析参数量并参与策略决策。
-
----
-
-## 1. 设计目标
-
-- **一套接口，双模式协同**：统一 `CoInferenceEngine`，内部支持 token/task 两类协同策略。
-- **模型可替换**：当前实现是可运行的模拟执行器；你可以平滑替换成真实的 `transformers/vLLM/TGI` 推理后端。
-- **策略可演进**：路由与置信度逻辑集中在协调器，方便引入 SLA、成本、拥塞控制、A/B 策略。
-- **工程可维护**：配置、模型画像、执行器、协调器、CLI 拆分清晰，便于后续服务化。
+- **TEE 安全卸载（Intel TDX 模拟）**：低置信或复杂任务自动触发“端 -> 云”安全卸载，返回 attestation 元数据。
+- **端侧轻量化推理底座**：支持 `MNN / ONNX Runtime` 两种端侧运行时配置，支持 `INT4/INT8` 量化与蒸馏开关。
+- **规则 + 轻量分类器路由**：简单查询优先端侧，复杂任务（长文本/代码/多轮）自动切换云端。
+- **本地 KV Cache 持久化与增量更新**：高频 Query 缓存落盘并优先命中，降低重复推理延迟。
+- **流水线协同**：`端侧首 Token -> 轻量预判 -> 本地缓存优先 -> 云侧复杂生成/推理`。
 
 ---
 
-## 2. 目录结构
+## 1. 目录结构
 
 ```text
 src/edge_cloud_coinference/
 ├── __init__.py
+├── cache.py          # 本地持久化 KV Cache
 ├── cli.py            # 命令行入口
 ├── config.py         # 部署与运行时配置
-├── coordinator.py    # 协同策略（token/task）
-├── executors.py      # 端侧/云侧执行器（当前为可运行模拟）
-├── models.py         # Qwen 参数量解析与模型画像
+├── coordinator.py    # 路由策略与协同编排
+├── executors.py      # 端侧/云侧执行器（模拟）
+├── models.py         # Qwen 参数量解析
 └── types.py          # 请求/响应数据结构
 
 tests/
-└── test_engine.py    # 核心协同行为测试
+└── test_engine.py
 ```
 
 ---
 
-## 3. 快速开始
+## 2. 快速开始
 
-### 3.1 环境
-
-- Python 3.10+
-
-### 3.2 运行 Token 级协同
+### 2.1 Token 协同 + Intel TDX 安全卸载
 
 ```bash
 PYTHONPATH=src python -m edge_cloud_coinference.cli \
   --mode token \
-  --prompt "请给出边缘计算场景下端云协同推理的关键指标" \
+  --prompt "请分析该系统在复杂负载下的调度行为" \
   --edge-model Qwen2.5-1.5B-Instruct \
-  --cloud-model Qwen2.5-14B-Instruct
+  --cloud-model Qwen2.5-14B-Instruct \
+  --edge-runtime onnxruntime \
+  --quantization int8
 ```
 
-### 3.3 运行任务级协同
+### 2.2 Task 协同 + MNN 端侧轻量化
 
 ```bash
 PYTHONPATH=src python -m edge_cloud_coinference.cli \
   --mode task \
-  --task-type code \
-  --prompt "请生成一个带重试和超时控制的异步HTTP客户端" \
-  --edge-model Qwen2.5-3B-Instruct \
-  --cloud-model Qwen2.5-32B-Instruct
+  --task-type general \
+  --prompt "请根据上文继续完成代码重构并解释设计" \
+  --edge-runtime mnn \
+  --quantization int4
 ```
 
-输出是 JSON，包含路由结果、置信度、总时延和推理文本。
+### 2.3 查看缓存落盘
+
+默认缓存路径：`.cache/kv_cache.json`。
 
 ---
 
-## 4. 核心机制说明
+## 3. 协同策略
 
-### 4.1 Token 级协同（`mode=token`）
+### 3.1 Token 模式
 
-1. 端侧先推理并给出置信度。  
-2. 若 `edge_confidence >= threshold`，直接端侧返回。  
-3. 否则触发“端 -> 云”接力，云侧继续并合并结果。  
+1. 端侧先返回首 Token 时延指标。  
+2. 若置信度高于阈值：端侧直接返回。  
+3. 若置信度不足：触发云侧，并在 metadata 标注 `secure_offload=intel_tdx:attested`。  
 
-### 4.2 任务级协同（`mode=task`）
+### 3.2 Task 模式（规则 + 分类器）
 
-按任务类型和输入复杂度直接路由：
-- `reasoning/code/long_context/multilingual` -> 云侧
-- 其他默认 -> 端侧
+- **规则路由**：`reasoning/code/long_context/multi_turn` 默认云侧。
+- **轻量分类器**：基于输入长度、代码特征、多轮上下文关键词估算复杂度。
+- **决策**：短输入 + 低复杂度留在端侧，其余走云侧。
 
-## 5. 如何接入真实 Qwen 推理后端
+### 3.3 KV Cache
 
-当前 `executors.py` 是“脱敏的可运行模拟器”，目的是说明大致协同框架。
-
-1. 保留 `BaseExecutor` 接口（`infer(prompt) -> ExecutorOutput`）。
-2. 新建 `QwenHFExecutor`（transformers）或 `QwenVLLMExecutor`（vLLM）。
-3. 在 `CoInferenceEngine` 初始化时注入真实执行器。
-4. 把 `_simulate_confidence` 替换为：
-   - token-level logprob统计、
-   - 校验器分数（例如规则/判别模型）、
-   - 或业务指标回归模型。
-5. 把 `_simulate_latency` 替换为：
-   - 实际RT（端设备 + 网络 + 云推理）采样、
-   - 滑动窗口P95/P99估计。
+- 请求到达先查本地 KV Cache；命中则直接返回（`route=edge_cache`）。
+- 未命中时执行推理并增量更新缓存。
 
 ---
 
-## 6. 测试
+## 4. 测试
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
-
-当前测试覆盖：
-- token 模式下高置信直接端侧返回；
-- token 模式下低置信触发端到云回退；
-- task 模式下按任务类型路由云侧。

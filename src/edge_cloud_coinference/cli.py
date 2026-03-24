@@ -16,6 +16,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--edge-model", default="Qwen2.5-1.5B-Instruct")
     parser.add_argument("--cloud-model", default="Qwen2.5-7B-Instruct")
     parser.add_argument("--confidence-threshold", type=float, default=0.72)
+    parser.add_argument("--edge-runtime", default="onnxruntime", choices=["mnn", "onnxruntime"])
+    parser.add_argument("--quantization", default="int8", choices=["int4", "int8", "fp16"])
+    parser.add_argument("--disable-distillation", action="store_true")
+    parser.add_argument("--disable-tee", action="store_true")
+    parser.add_argument("--session-id", default="demo-session")
     return parser
 
 
@@ -25,12 +30,21 @@ def main() -> None:
         edge_model=args.edge_model,
         cloud_model=args.cloud_model,
         collaboration_mode=args.mode,
+        edge_runtime=args.edge_runtime,
+        quantization=args.quantization,
+        distillation_enabled=not args.disable_distillation,
+        tee_enabled=not args.disable_tee,
     )
     runtime = RuntimeConfig(confidence_threshold=args.confidence_threshold)
 
     engine = CoInferenceEngine(deployment, runtime)
     result = engine.run(
-        InferenceRequest(request_id="demo-request", prompt=args.prompt, task_type=args.task_type)
+        InferenceRequest(
+            request_id="demo-request",
+            prompt=args.prompt,
+            task_type=args.task_type,
+            session_id=args.session_id,
+        )
     )
 
     print(

@@ -8,6 +8,7 @@ class InferenceRequest:
     request_id: str
     prompt: str
     task_type: str = "general"
+    session_id: str = "default-session"
 
 
 @dataclass(slots=True)
