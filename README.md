@@ -4,6 +4,7 @@
 
 - **TEE 安全卸载（Intel TDX 模拟）**：低置信或复杂任务自动触发“端 -> 云”安全卸载，返回 attestation 元数据。
 - **端侧轻量化推理底座**：支持 `MNN / ONNX Runtime` 两种端侧运行时配置，支持 `INT4/INT8` 量化与蒸馏开关。
+- **云侧执行可插拔**：支持 `simulated / api / full_model` 三种云侧执行模式，可预留 API 网关或全量大模型服务。
 - **规则 + 轻量分类器路由**：简单查询优先端侧，复杂任务（长文本/代码/多轮）自动切换云端。
 - **本地 KV Cache 持久化与增量更新**：高频 Query 缓存落盘并优先命中，降低重复推理延迟。
 - **流水线协同**：`端侧首 Token -> 轻量预判 -> 本地缓存优先 -> 云侧复杂生成/推理`。
@@ -54,7 +55,29 @@ PYTHONPATH=src python -m edge_cloud_coinference.cli \
   --quantization int4
 ```
 
-### 2.3 查看缓存落盘
+### 2.3 云侧 API 预留模式
+
+```bash
+PYTHONPATH=src python -m edge_cloud_coinference.cli \
+  --mode token \
+  --prompt "请总结端云协同执行状态" \
+  --cloud-exec-mode api \
+  --cloud-api-base-url "https://api.example.com/v1/chat/completions" \
+  --cloud-api-model "qwen-plus"
+```
+
+### 2.4 云侧全量大模型预留模式
+
+```bash
+PYTHONPATH=src python -m edge_cloud_coinference.cli \
+  --mode task \
+  --task-type reasoning \
+  --prompt "请完成复杂推理任务" \
+  --cloud-exec-mode full_model \
+  --cloud-full-runtime vllm
+```
+
+### 2.5 查看缓存落盘
 
 默认缓存路径：`.cache/kv_cache.json`。
 
