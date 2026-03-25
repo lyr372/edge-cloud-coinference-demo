@@ -36,6 +36,10 @@ class CoInferenceEngine:
             runtime="cloud-runtime",
             quantization="fp16",
             distillation_enabled=False,
+            execution_mode=deployment.cloud_execution_mode,
+            api_base_url=deployment.cloud_api_base_url,
+            api_model=deployment.cloud_api_model,
+            full_model_runtime=deployment.cloud_full_model_runtime,
         )
 
     def run(self, request: InferenceRequest) -> InferenceResult:
@@ -73,9 +77,10 @@ class CoInferenceEngine:
         metadata = {
             "mode": "token",
             "first_token_ms": str(edge_out.first_token_ms),
-            "edge_runtime": self.deployment.edge_runtime,
             "quantization": self.deployment.quantization,
         }
+        if edge_out.metadata:
+            metadata.update({k: str(v) for k, v in edge_out.metadata.items()})
         if edge_out.confidence >= self.runtime.confidence_threshold:
             metadata["handoff"] = "none"
             return InferenceResult(
@@ -88,6 +93,8 @@ class CoInferenceEngine:
             )
 
         cloud_out = self.cloud.infer(request.prompt)
+        if cloud_out.metadata:
+            metadata.update({k: str(v) for k, v in cloud_out.metadata.items()})
         metadata["handoff"] = "low_confidence"
         if self.deployment.tee_enabled:
             metadata["secure_offload"] = f"{self.deployment.tee_type}:attested"
@@ -117,6 +124,8 @@ class CoInferenceEngine:
             "classifier": cls.label,
             "pipeline": "edge_first_token/light_predict/local_cache+cloud_complex_generation",
         }
+        if out.metadata:
+            metadata.update({k: str(v) for k, v in out.metadata.items()})
         if route_to_cloud and self.deployment.tee_enabled:
             metadata["secure_offload"] = f"{self.deployment.tee_type}:attested"
 

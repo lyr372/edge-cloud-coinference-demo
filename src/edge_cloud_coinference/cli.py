@@ -16,8 +16,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--edge-model", default="Qwen2.5-1.5B-Instruct")
     parser.add_argument("--cloud-model", default="Qwen2.5-7B-Instruct")
     parser.add_argument("--confidence-threshold", type=float, default=0.72)
-    parser.add_argument("--edge-runtime", default="onnxruntime", choices=["mnn", "onnxruntime"])
+    parser.add_argument("--edge-runtime", default="onnxruntime", choices=["mnn", "onnxruntime", "onnx"])
     parser.add_argument("--quantization", default="int8", choices=["int4", "int8", "fp16"])
+    parser.add_argument("--cloud-exec-mode", default="simulated", choices=["simulated", "api", "full_model"])
+    parser.add_argument("--cloud-api-base-url", default="https://api.example.com/v1/chat/completions")
+    parser.add_argument("--cloud-api-model", default="qwen-plus")
+    parser.add_argument("--cloud-full-runtime", default="vllm")
     parser.add_argument("--disable-distillation", action="store_true")
     parser.add_argument("--disable-tee", action="store_true")
     parser.add_argument("--session-id", default="demo-session")
@@ -33,6 +37,10 @@ def main() -> None:
         edge_runtime=args.edge_runtime,
         quantization=args.quantization,
         distillation_enabled=not args.disable_distillation,
+        cloud_execution_mode=args.cloud_exec_mode,
+        cloud_api_base_url=args.cloud_api_base_url,
+        cloud_api_model=args.cloud_api_model,
+        cloud_full_model_runtime=args.cloud_full_runtime,
         tee_enabled=not args.disable_tee,
     )
     runtime = RuntimeConfig(confidence_threshold=args.confidence_threshold)
